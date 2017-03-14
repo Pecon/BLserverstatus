@@ -32,10 +32,11 @@ if(!isSet($servers))
 
 	// Try to verify that the list was served correctly so we don't make an image with a bunch of junk data.
 	$fail = false;
-
-	if(trim($servers[1]) != "START")
+	
+	if(!isSet($servers[1]))
 		$fail = true;
-
+	else if(trim($servers[1]) != "START")
+		$fail = true;
 	else if(trim($servers[count($servers) - 2]) != "END")
 		$fail = true;
 
