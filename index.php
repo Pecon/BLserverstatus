@@ -1,5 +1,49 @@
 <?php
 //Originally by Zack0wack0, savaged and rehosted by Kalphiter; now re-rehosted and maintained by Pecon
+ob_start();
+error_reporting(E_ALL);
+
+function getFreshServerList()
+{
+	ini_set("default_socket_timeout", 5);
+	$list = file_get_contents("http://master3.blockland.us/");
+
+	$entries = explode("\n", $list);
+	$serverList = Array();
+
+	foreach($entries as $entry)
+	{
+		$entry = explode("\t", trim($entry));
+
+		if(count($entry) < 2)
+			continue; // Bad entry
+
+		if(is_numeric($entry[1]))
+		{
+			// It's probably good.
+			$server = Array();
+			$server['ip'] = $entry[0];
+			$server['port'] = $entry[1];
+			$server['passworded'] = $entry[2];
+			$server['dedicated'] = $entry[3];
+			$server['servername'] = $entry[4];
+			$server['players'] = $entry[5];
+			$server['maxplayers'] = $entry[6];
+			$server['gamemode'] = $entry[7];
+			$server['brickcount'] = $entry[8];
+			$server['blid'] = $entry[9];
+			$server['adminname'] = $entry[10];
+			$server['steamid'] = $entry[11];
+
+			array_push($serverList, $server);
+		}
+	}
+
+	if(count($serverList) < 1)
+		return false;
+
+	return $serverList;
+}
 
 if(!isSet($_GET["h"]) && !isSet($_GET["a"]))
 {
@@ -17,122 +61,100 @@ if(!isSet($_GET['i']) || ($_GET['i'] != "png" && $_GET['i'] != "gif" && $_GET['i
 else
 	$imageType = $_GET['i'];
 
-$loadedTime = time();
-if(file_exists("server-status_cache_details.txt") && file_exists("server-status_cache.txt"))
+$cacheMTime = 0;
+$saveCache = false;
+if(is_file("./cache.dat"))
 {
-	$cacheTime = intval(file_get_contents("server-status_cache_details.txt"));
-	if($loadedTime - $cacheTime < 60)
-		$servers = file("server-status_cache.txt");
+	$serverList = file_get_contents("./cache.dat");
+	$serverList = unserialize($serverList);
+
+	if($serverList === false)
+		unset($serverList);
+
+	$cacheMTime = filemtime("./cache.dat");
 }
 
-if(!isSet($servers))
+// Cache is bad.
+if(!isset($serverList))
 {
-	ini_set('default_socket_timeout', 5);
-	$servers = file("http://master2.blockland.us/");
+	$serverList = Array();
+	$serverList['servers'] = getFreshServerList();
+	$serverList['time'] = time();
+	$saveCache = true;
 
-	// Try to verify that the list was served correctly so we don't make an image with a bunch of junk data.
-	$fail = false;
-	
-	if(!isSet($servers[1]))
-		$fail = true;
-	else if(trim($servers[1]) != "START")
-		$fail = true;
-	else if(trim($servers[count($servers) - 2]) != "END")
-		$fail = true;
+	if($serverList === false)
+		exit(file_get_contents("./images/unavailable.png"));
+}
+else if($serverList['time'] < time() - 30) // Cache is old
+{
+	$newList = getFreshServerList();
 
-	if($fail)
+	if($newList !== false)
 	{
-		// Report this error
-		$file = fopen("./masterservererror.log", 'a');
-		$file.fwrite("\n\n==================================\n" . date() . "\n" . $servers);
+		$serverList = Array();
+		$serverList['servers'] = $newList;
+		$serverList['time'] = time();
+		$saveCache = true;
+	}
+}
 
-		// Okay, let's see how old the cache is. If it's new enough we can just serve that.
-		if(isSet($cacheTime))
-		{
-			$recovered = false;
-			if($loadedTime - $cacheTime < 240)
-			{
-				$servers = file("server-status_cache.txt");
-				$recovered = true;
-			}
-		}
+// Save new cache
+if($saveCache)
+{
+	$data = serialize($serverList);
 
-		if(!$recovered)
-		{
-			// The master server has an unusually high rate of returning blank pages. Probably a bug on it's end, nothing we can really do about that.
-			// Try waiting a second and loading again before giving up.
-
-			sleep(1000);
-
-			$servers = file("http://master2.blockland.us/");
-			$fail = false;
-
-			if(trim($servers[1]) != "START")
-				$fail = true;
-
-			else if(trim($servers[count($servers) - 2]) != "END")
-				$fail = true;
-
-			if($fail)
-			{
-				header("Content-type: image/PNG");
-				readfile("./images/unavailable.png");
-				exit();
-			}
-		}
+	if(filemtime("./cache.dat") == $cacheMTime)
+	{
+		file_put_contents("./cache.dat", $data);
 	}
 	else
 	{
-		file_put_contents("server-status_cache_details.txt", $loadedTime);
-		file_put_contents("server-status_cache.txt", implode("", $servers));
+		// Race condition caught: The file was modified since we initially read the cache. Don't save over it now.
 	}
 }
 
-//Figure out which server on the list matches the requested one.
-$target = false;
-foreach($servers as $index => $server)
+// Find target server
+if(isset($_GET['h']))
 {
-	$server = explode("\t", $server);
-
-	if(count($server) == 1)
-		continue;
-
-	$host = strpos($server[4], "'", 0);
-	$host = substr($server[4], 0, $host);
-
-	if(isSet($_GET['a']))
+	foreach($serverList['servers'] as $server)
 	{
-		if(isSet($_GET["p"]) && $server[1] != $_GET["p"])
-			continue;
-
-		if($server[0] == $_GET["a"])
+		if(strtolower($server['adminname']) == strtolower(trim($_GET['h'])))
 		{
 			$target = $server;
 			break;
 		}
 	}
-	else if(isSet($_GET['h']))
+}
+
+if(!isset($target) && isset($_GET['a']))
+{
+	foreach($serverList['servers'] as $server)
 	{
-		if($host == $_GET["h"])
+		if($server['ip'] == trim($_GET['a']))
 		{
+			if(isset($_GET['p']))
+			{
+				if(strlen($_GET['p']) > 1 && $_GET['p'] != $server['port'])
+					continue; // Not the specified port
+			}
+
 			$target = $server;
 			break;
 		}
 	}
-	else
-		break;
 }
 
 // Set up text to write to the images
-if(count($target) > 1)
+if(isset($target))
 {
-	$name = $target[4];
+	$host = $target['adminname'];
+	$name = $host . (substr($host, count($host) - 2) == 's' ? "'" : "'s") . " " . $target['servername'];
 
-	$dedi = ($target[3] == 1 ? "Yes" : "No");
-	$passed = ($target[2] == 1 ? "Yes" : "No");
-	$players = $target[5] . "/" . $target[6];
-	$bricks = $target[8];
-	$gamemode = $target[7];
+	$dedi = ($target['dedicated'] == 1 ? "Yes" : "No");
+	$passed = ($target['passworded'] == 1 ? "Yes" : "No");
+	$players = $target['players'] . "/" . $target['maxplayers'];
+	$bricks = $target['brickcount'];
+	$gamemode = $target['gamemode'];
 }
 else
 {
@@ -145,6 +167,8 @@ else
 	$players = "N/A";
 	$bricks = "N/A";
 	$gamemode = "N/A";
+
+	$target = Array('players' => 0, 'maxplayers' => 0, 'dedicated' => 0, 'passworded' => 0, 'brickcount' => 0, 'gamemode' => null, 'adminname' => null, 'servername' => null);
 }
 
 // Make the image and write the text.
@@ -162,11 +186,11 @@ switch($imageTemplate)
 		$white = imagecolorallocate($im, 255, 255, 255);
 		$black = imagecolorallocate($im, 15, 15, 15);
 
-		if($target[5] >= $target[6])
+		if($target['players'] >= $target['maxplayers'])
 			$titleColor = $red;
-		else if($target[2])
+		else if($target['passworded'])
 			$titleColor = $purple;
-		else if($target[5] < $target[6])
+		else if($target['players'] < $target['maxplayers'])
 			$titleColor = $green;
 		else
 			$titleColor = $white;
@@ -192,11 +216,11 @@ switch($imageTemplate)
 		$white = imagecolorallocate($im, 255, 255, 255);
 		$black = imagecolorallocate($im, 15, 15, 15);
 
-		if($target[5] >= $target[6])
+		if($target['players'] >= $target['maxplayers'])
 			$titleColor = $red;
-		else if($target[2])
+		else if($target['passworded'])
 			$titleColor = $purple;
-		else if($target[5] < $target[6])
+		else if($target['players'] < $target['maxplayers'])
 			$titleColor = $green;
 		else
 			$titleColor = $white;
@@ -255,6 +279,15 @@ switch($imageTemplate)
 
 		break;
 }
+
+$errors = ob_get_contents();
+if(strlen($errors) > 2)
+{
+	$handle = fopen("./error.log", 'a');
+	fwrite($handle, $errors);
+	fclose($handle);
+}
+ob_end_clean();
 
 if($im)
 {
