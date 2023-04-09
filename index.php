@@ -148,7 +148,7 @@ if(!isset($target) && isset($_GET['a']))
 if(isset($target))
 {
 	$host = $target['adminname'];
-	$name = $host . (substr($host, count($host) - 2) == 's' ? "'" : "'s") . " " . $target['servername'];
+	$name = $host . (substr($host, strlen($host) - 2) == 's' ? "'" : "'s") . " " . $target['servername'];
 
 	$dedi = ($target['dedicated'] == 1 ? "Yes" : "No");
 	$passed = ($target['passworded'] == 1 ? "Yes" : "No");
