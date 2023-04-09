@@ -1,9 +1,8 @@
 <?php
 //Originally by Zack0wack0, savaged and rehosted by Kalphiter; now re-rehosted and maintained by Pecon
 ob_start();
-error_reporting(E_ALL);
 
-function getFreshServerList()
+function getFreshServerList(): ?Array
 {
 	ini_set("default_socket_timeout", 5);
 	$list = file_get_contents("http://master3.blockland.us/");
@@ -40,7 +39,9 @@ function getFreshServerList()
 	}
 
 	if(count($serverList) < 1)
-		return false;
+	{
+		return null;
+	}
 
 	return $serverList;
 }
@@ -68,7 +69,7 @@ if(is_file("./cache.dat"))
 	$serverList = file_get_contents("./cache.dat");
 	$serverList = unserialize($serverList);
 
-	if($serverList === false)
+	if(!$serverList)
 		unset($serverList);
 
 	$cacheMTime = filemtime("./cache.dat");
@@ -82,14 +83,17 @@ if(!isset($serverList))
 	$serverList['time'] = time();
 	$saveCache = true;
 
-	if($serverList === false)
+	if(!$serverList)
+	{
+		header('Content-Type: image/png');
 		exit(file_get_contents("./images/unavailable.png"));
+	}
 }
 else if($serverList['time'] < time() - 30) // Cache is old
 {
 	$newList = getFreshServerList();
 
-	if($newList !== false)
+	if(!$newList)
 	{
 		$serverList = Array();
 		$serverList['servers'] = $newList;
