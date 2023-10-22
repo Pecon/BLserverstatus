@@ -62,65 +62,32 @@ if(!isSet($_GET['i']) || ($_GET['i'] != "png" && $_GET['i'] != "gif" && $_GET['i
 else
 	$imageType = $_GET['i'];
 
-$cacheMTime = 0;
-$saveCache = false;
-if(is_file("./cache.dat"))
+if(class_exists('Redis') && false)
 {
-	$serverList = file_get_contents("./cache.dat");
-	$serverList = unserialize($serverList);
+	$redis = new Redis();
+	$redis -> connect('pecon_redis', 6379);
 
-	if(!$serverList)
-		unset($serverList);
-
-	$cacheMTime = filemtime("./cache.dat");
-}
-
-// Cache is bad.
-if(!isset($serverList))
-{
-	$serverList = Array();
-	$serverList['servers'] = getFreshServerList();
-	$serverList['time'] = time();
-	$saveCache = true;
+	$serverList = $redis -> get('serverStatus::listCache');
 
 	if(!$serverList)
 	{
-		header('Content-Type: image/png');
-		exit(file_get_contents("./images/unavailable.png"));
-	}
-}
-else if($serverList['time'] < time() - 30) // Cache is old
-{
-	$newList = getFreshServerList();
-
-	if(!$newList)
-	{
-		$serverList = Array();
-		$serverList['servers'] = $newList;
-		$serverList['time'] = time();
-		$saveCache = true;
-	}
-}
-
-// Save new cache
-if($saveCache)
-{
-	$data = serialize($serverList);
-
-	if(filemtime("./cache.dat") == $cacheMTime)
-	{
-		file_put_contents("./cache.dat", $data);
+		$serverList = getFreshServerList();
+		$redis -> setEx('serverStatus::listCache', 30, serialize($serverList));
 	}
 	else
 	{
-		// Race condition caught: The file was modified since we initially read the cache. Don't save over it now.
+		$serverList = unserialize($serverList);
 	}
+}
+else
+{
+	$serverList = getFreshServerList();
 }
 
 // Find target server
 if(isset($_GET['h']))
 {
-	foreach($serverList['servers'] as $server)
+	foreach($serverList as $server)
 	{
 		if(strtolower($server['adminname']) == strtolower(trim($_GET['h'])))
 		{
@@ -132,7 +99,7 @@ if(isset($_GET['h']))
 
 if(!isset($target) && isset($_GET['a']))
 {
-	foreach($serverList['servers'] as $server)
+	foreach($serverList as $server)
 	{
 		if($server['ip'] == trim($_GET['a']))
 		{
